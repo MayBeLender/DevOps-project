@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Производственный учёт</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="dashboard-page">
+<header class="topbar">
+    <div><p class="eyebrow">Производственная фирма</p><h1>Панель цеха</h1></div>
+    <div class="topbar-actions"><span id="workshop-label" class="pill"></span><button id="logout" class="secondary">Выйти</button></div>
+</header>
+<main class="dashboard">
+    <div class="grid-2">
+        <section class="panel">
+            <div class="panel-title"><h2>Операции</h2><button class="small" data-toggle="operation-form">Добавить</button></div>
+            <form id="operation-form" class="inline-form hidden">
+                <input id="operation-name" placeholder="Название" required>
+                <input id="operation-duration" type="number" min="1" placeholder="Минуты" required>
+                <input id="operation-workers" type="number" min="1" placeholder="Нужно работников" required>
+                <input id="operation-description" placeholder="Описание">
+                <button>Сохранить</button>
+            </form>
+            <div id="operations-list" class="table-wrap"></div>
+        </section>
+        <section class="panel">
+            <div class="panel-title"><h2>Материалы</h2><button class="small" data-toggle="material-form">Добавить</button></div>
+            <form id="material-form" class="inline-form hidden">
+                <input id="material-name" placeholder="Название" required>
+                <input id="material-unit" value="шт." placeholder="Единица">
+                <input id="material-quantity" type="number" min="0" step="0.01" placeholder="Количество сейчас" required>
+                <button>Сохранить</button>
+            </form>
+            <div id="materials-list" class="table-wrap"></div>
+        </section>
+    </div>
+    <section class="panel">
+        <div class="panel-title"><h2>Наряды на производство</h2><button class="small" data-toggle="order-form">Создать наряд</button></div>
+        <form id="order-form" class="inline-form hidden">
+            <select id="order-operation" required><option value="">Операция</option></select>
+            <input id="order-quantity" type="number" min="1" placeholder="Изделий" required>
+            <label class="compact-label" for="order-start">Начало<input id="order-start" type="datetime-local" required></label>
+            <label class="compact-label" for="order-end">Конец<input id="order-end" type="datetime-local" required></label>
+            <input id="order-notes" placeholder="Примечание">
+            <button>Создать</button>
+        </form>
+        <div id="orders-list" class="table-wrap"></div>
+    </section>
+    <p id="toast" class="toast" role="status"></p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let operations = [], materials = [];
+async function api(url, options = {}) {
+    const response = await fetch(url, {headers: {'Content-Type': 'application/json'}, ...options});
+    const payload = await response.json().catch(() => ({}));
+    if (response.status === 401) { location.href = '/login'; throw new Error('Сессия истекла'); }
+    if (!response.ok) throw new Error(payload.error || 'Запрос не выполнен');
+    return payload.data ?? payload;
+}
+function showError(error) { $('toast').textContent = error.message; $('toast').className = 'toast visible error'; setTimeout(() => $('toast').className = 'toast', 4000); }
+function showOk(text) { $('toast').textContent = text; $('toast').className = 'toast visible'; setTimeout(() => $('toast').className = 'toast', 2500); }
+function table(headers, rows) { if (!rows.length) return '<p class="muted empty">Пока нет данных.</p>'; return `<table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`; }
+function dateLabel(value) { return value ? value.replace('T', ' ') : '—'; }
+async function load() {
+    try {
+        const [workshop, opData, matData, orderData] = await Promise.all([api('/api/workshops'), api('/api/operations'), api('/api/materials'), api('/api/work-orders')]);
+        operations = opData; materials = matData;
+        $('workshop-label').textContent = `${workshop.name}`;
+        $('operations-list').innerHTML = table(['Название', 'Длительность', 'Работников', ''], operations.map(x => `<tr><td><strong>${x.name}</strong><small>${x.description || ''}</small></td><td>${x.duration_minutes} мин.</td><td>${x.workers_required}</td><td><button class="link danger" onclick="removeItem('/api/operations/${x.id}')">Удалить</button></td></tr>`));
+        $('materials-list').innerHTML = table(['Название', 'Количество', ''], materials.map(x => `<tr><td><strong>${x.name}</strong><small>${x.unit}</small></td><td><input class="quantity-input" id="material-${x.id}" type="number" min="0" step="0.01" value="${x.quantity}"></td><td><button class="link" onclick="updateMaterial(${x.id})">Сохранить</button><button class="link danger" onclick="removeItem('/api/materials/${x.id}')">Удалить</button></td></tr>`));
+        $('orders-list').innerHTML = table(['№', 'Операция', 'Изделий', 'Начало', 'Конец', 'Примечание', ''], orderData.map(x => `<tr><td>#${x.id}</td><td>${x.operation_name}</td><td>${x.quantity}</td><td>${dateLabel(x.start_time)}</td><td>${dateLabel(x.end_time)}</td><td>${x.notes || '—'}</td><td><button class="link danger" onclick="removeItem('/api/work-orders/${x.id}')">Удалить</button></td></tr>`));
+        $('order-operation').innerHTML = '<option value="">Операция</option>' + operations.map(x => `<option value="${x.id}">${x.name}</option>`).join('');
+    } catch (error) { showError(error); }
+}
+async function removeItem(url) { if (!confirm('Удалить запись?')) return; try { await api(url, {method: 'DELETE'}); await load(); showOk('Запись удалена'); } catch (error) { showError(error); } }
+async function updateMaterial(id) { const input = $(`material-${id}`); try { await api(`/api/materials/${id}`, {method: 'PATCH', body: JSON.stringify({quantity: Number(input.value)})}); await load(); showOk('Количество материала обновлено'); } catch (error) { showError(error); } }
+for (const button of document.querySelectorAll('[data-toggle]')) button.addEventListener('click', () => $(button.dataset.toggle).classList.toggle('hidden'));
+$('operation-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/operations', {method:'POST', body: JSON.stringify({name:$('operation-name').value, duration_minutes:Number($('operation-duration').value), workers_required:Number($('operation-workers').value), description:$('operation-description').value})}); event.target.reset(); await load(); showOk('Операция добавлена'); } catch (error) { showError(error); } });
+$('material-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/materials', {method:'POST', body: JSON.stringify({name:$('material-name').value, unit:$('material-unit').value, quantity:Number($('material-quantity').value)})}); event.target.reset(); $('material-unit').value='шт.'; await load(); showOk('Материал добавлен'); } catch (error) { showError(error); } });
+$('order-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/work-orders', {method:'POST', body: JSON.stringify({operation_id:Number($('order-operation').value), quantity:Number($('order-quantity').value), start_time:$('order-start').value, end_time:$('order-end').value, notes:$('order-notes').value})}); event.target.reset(); await load(); showOk('Наряд создан'); } catch (error) { showError(error); } });
+$('logout').addEventListener('click', async () => { await fetch('/api/auth/logout', {method:'POST'}); location.href='/login'; });
+load();
+</script>
+</body>
+</html>
