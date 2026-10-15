@@ -9,7 +9,7 @@
 <body>
     <main class="card">
         <h1>Авторизация</h1>
-        <form action="success.html" method="get">
+        <form action="success.html" method="get" id="login-form">
             <label for="login">Логин</label>
             <input id="login" name="login" type="text" placeholder="Введите логин" required>
 
@@ -19,5 +19,10 @@
             <button type="submit">Войти</button>
         </form>
     </main>
+<script>
+document.getElementById('login-form').addEventListener('submit', async (event) => {
+    console.log("submit event triggered");
+});
+</script>
 </body>
 </html>
