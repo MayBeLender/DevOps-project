@@ -1,23 +1,49 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Авторизация</title>
-    <link rel="stylesheet" href="styles.css">
+    <title>Производственный учёт — вход</title>
+    <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-    <main class="card">
-        <h1>Авторизация</h1>
-        <form action="success.html" method="get">
-            <label for="login">Логин</label>
-            <input id="login" name="login" type="text" placeholder="Введите логин" required>
-
-            <label for="password">Пароль</label>
-            <input id="password" name="password" type="password" placeholder="Введите пароль" required>
-
-            <button type="submit">Войти</button>
-        </form>
-    </main>
+<main class="card auth-card">
+    <p class="eyebrow">Производственная фирма</p>
+    <h1>Вход в учёт цеха</h1>
+    <p class="muted">Введите код и пароль цеха.</p>
+    <form id="login-form">
+        <label for="workshop_code">Код цеха</label>
+        <input id="workshop_code" name="workshop_code" placeholder="test" autocomplete="username" required>
+        <label for="password">Пароль</label>
+        <input id="password" name="password" type="password" placeholder="Пароль цеха" autocomplete="current-password" required>
+        <button type="submit">Войти</button>
+        <p id="login-error" class="form-error" role="alert"></p>
+    </form>
+</main>
+<script>
+async function sendForm(data) {
+    const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Запрос не выполнен');
+}
+document.getElementById('login-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const error = document.getElementById('login-error');
+    error.textContent = '';
+    try {
+        await sendForm({
+            workshop_code: document.getElementById('workshop_code').value,
+            password: document.getElementById('password').value
+        });
+        location.href = '/dashboard';
+    } catch (err) {
+        error.textContent = err.message;
+    }
+});
+</script>
 </body>
 </html>

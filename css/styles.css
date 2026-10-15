@@ -1,7 +1,7 @@
 :root {
-    font-family: Arial, sans-serif;
-    color: #202124;
-    background: #f3f4f6;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+    color: #1f2937;
+    background: #f4f7fb;
 }
 
 * {
@@ -11,56 +11,79 @@
 body {
     margin: 0;
     min-height: 100vh;
-    display: grid;
-    place-items: center;
     padding: 24px;
 }
 
 .card {
-    width: min(100%, 380px);
-    padding: 32px;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    width: min(100%, 460px);
+    margin: 7vh auto;
+    padding: 34px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    box-shadow: 0 16px 40px #0f172a12;
 }
 
-h1 {
-    margin: 0 0 24px;
-    font-size: 28px;
+.auth-card h1 {
+    margin: 4px 0 10px;
+    font-size: 30px;
+}
+
+.eyebrow {
+    margin: 0;
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.muted,
+.hint {
+    color: #64748b;
+    line-height: 1.5;
+}
+
+.hint {
+    margin-top: 24px;
+    font-size: 12px;
 }
 
 label {
     display: block;
-    margin: 14px 0 6px;
-    font-size: 14px;
-    font-weight: bold;
+    margin: 18px 0 7px;
+    font-size: 13px;
+    font-weight: 700;
 }
 
-input {
+input,
+select {
     width: 100%;
     padding: 11px 12px;
-    border: 1px solid #cfd3d8;
-    border-radius: 6px;
-    font-size: 16px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #1f2937;
+    font: inherit;
 }
 
-input:focus {
-    outline: 2px solid #93c5fd;
+input:focus,
+select:focus {
+    outline: 2px solid #bfdbfe;
     border-color: #2563eb;
 }
 
 button,
 .button {
     display: inline-block;
-    margin-top: 22px;
-    padding: 11px 18px;
+    margin-top: 20px;
+    padding: 11px 17px;
     border: 0;
-    border-radius: 6px;
+    border-radius: 8px;
     background: #2563eb;
-    color: #ffffff;
-    font-size: 16px;
-    text-decoration: none;
+    color: white;
+    font: inherit;
+    font-weight: 700;
     cursor: pointer;
 }
 
@@ -69,16 +92,269 @@ button:hover,
     background: #1d4ed8;
 }
 
-.message {
-    text-align: center;
+button.secondary {
+    background: #e8eef8;
+    color: #1e40af;
 }
 
-.message p {
-    color: #4b5563;
+button.secondary:hover {
+    background: #dbeafe;
 }
 
-.error-code {
-    margin: 0;
+.form-error {
+    min-height: 20px;
+    margin: 12px 0 0;
     color: #dc2626;
-    font-size: 72px;
+    font-size: 13px;
+}
+
+.dashboard-page {
+    padding: 0;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 24px max(24px, calc((100vw - 1180px) / 2));
+    background: #0f172a;
+    color: #fff;
+}
+
+.topbar h1 {
+    margin: 4px 0 0;
+    font-size: 28px;
+}
+
+.topbar .eyebrow {
+    color: #93c5fd;
+}
+
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.topbar .secondary {
+    margin: 0;
+    background: #1e293b;
+    color: #bfdbfe;
+}
+
+.pill {
+    padding: 8px 12px;
+    border: 1px solid #334155;
+    border-radius: 999px;
+    color: #dbeafe;
+    font-size: 13px;
+}
+
+.dashboard {
+    width: min(1180px, calc(100% - 48px));
+    margin: 28px auto;
+}
+
+.stat,
+.panel {
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 8px 24px #0f172a08;
+}
+
+.stat b {
+    display: block;
+    color: #1d4ed8;
+    font-size: 30px;
+}
+
+.stat span {
+    color: #64748b;
+    font-size: 13px;
+}
+
+.grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 18px;
+}
+
+.panel-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+h2 {
+    margin: 0;
+    font-size: 19px;
+}
+
+button.small {
+    margin: 0;
+    padding: 8px 11px;
+    font-size: 13px;
+}
+
+button.link {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    color: #2563eb;
+    font-size: 12px;
+}
+
+button.link:hover {
+    background: transparent;
+    text-decoration: underline;
+}
+
+button.link.danger {
+    color: #dc2626;
+}
+
+button.link + button.link {
+    margin-left: 12px;
+}
+
+.inline-form {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.inline-form input,
+.inline-form select {
+    min-width: 0;
+}
+
+.inline-form button {
+    grid-column: 1 / -1;
+    margin-top: 0;
+}
+
+.hidden {
+    display: none;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+th {
+    padding: 10px 8px;
+    border-bottom: 2px solid #e2e8f0;
+    color: #64748b;
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+td {
+    padding: 12px 8px;
+    border-bottom: 1px solid #eef2f7;
+    vertical-align: top;
+}
+
+td small {
+    display: block;
+    margin-top: 3px;
+    color: #94a3b8;
+}
+
+td select {
+    width: auto;
+    padding: 5px 7px;
+    font-size: 12px;
+}
+
+.warning {
+    color: #dc2626;
+    font-weight: 800;
+}
+
+.empty {
+    padding: 8px 0;
+}
+
+.toast {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    max-width: 360px;
+    margin: 0;
+    padding: 12px 16px;
+    border-radius: 9px;
+    background: #166534;
+    color: white;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: .2s;
+    pointer-events: none;
+}
+
+.toast.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.error {
+    background: #b91c1c;
+}
+
+code {
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #eff6ff;
+    color: #1e40af;
+}
+
+.compact-label {
+    margin: 0;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.compact-label input {
+    display: block;
+    margin-top: 5px;
+}
+
+.quantity-input {
+    width: 120px;
+    padding: 7px 8px;
+}
+
+@media (max-width: 780px) {
+    .grid-2 {
+        grid-template-columns: 1fr;
+    }
+
+    .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .dashboard {
+        width: min(100% - 24px, 1180px);
+        margin: 16px auto;
+    }
+
+    body {
+        padding: 12px;
+    }
 }
