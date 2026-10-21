@@ -79,7 +79,23 @@ async function updateMaterial(id) { const input = $(`material-${id}`); try { awa
 for (const button of document.querySelectorAll('[data-toggle]')) button.addEventListener('click', () => $(button.dataset.toggle).classList.toggle('hidden'));
 $('operation-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/operations', {method:'POST', body: JSON.stringify({name:$('operation-name').value, duration_minutes:Number($('operation-duration').value), workers_required:Number($('operation-workers').value), description:$('operation-description').value})}); event.target.reset(); await load(); showOk('Операция добавлена'); } catch (error) { showError(error); } });
 $('material-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/materials', {method:'POST', body: JSON.stringify({name:$('material-name').value, unit:$('material-unit').value, quantity:Number($('material-quantity').value)})}); event.target.reset(); $('material-unit').value='шт.'; await load(); showOk('Материал добавлен'); } catch (error) { showError(error); } });
-$('order-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/work-orders', {method:'POST', body: JSON.stringify({operation_id:Number($('order-operation').value), quantity:Number($('order-quantity').value), start_time:$('order-start').value, end_time:$('order-end').value, notes:$('order-notes').value})}); event.target.reset(); await load(); showOk('Наряд создан'); } catch (error) { showError(error); } });
+$('order-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+        const operation = operations.find(item => item.id === Number($('order-operation').value));
+        const start = new Date($('order-start').value);
+        const end = new Date($('order-end').value);
+        if (!operation) throw new Error('Выберите операцию.');
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) throw new Error('Укажите корректные даты начала и окончания.');
+        if (end <= start) throw new Error('Время окончания должно быть позже времени начала.');
+        const intervalMinutes = (end - start) / 60000;
+        if (intervalMinutes < operation.duration_minutes) throw new Error(`Временной интервал должен быть не меньше длительности операции (${operation.duration_minutes} мин.).`);
+        await api('/api/work-orders', {method:'POST', body: JSON.stringify({operation_id:operation.id, quantity:Number($('order-quantity').value), start_time:$('order-start').value, end_time:$('order-end').value, notes:$('order-notes').value})});
+        event.target.reset();
+        await load();
+        showOk('Наряд создан');
+    } catch (error) { showError(error); }
+});
 $('logout').addEventListener('click', async () => { await fetch('/api/auth/logout', {method:'POST'}); location.href='/login'; });
 load();
 </script>

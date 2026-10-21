@@ -3,6 +3,7 @@ import json
 import logging
 import secrets
 import sqlite3
+from datetime import datetime
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -234,8 +235,21 @@ class BareSiteHandler(BaseHTTPRequestHandler):
         if method == "POST":
             data = self.body()
             operation_id = data.get("operation_id")
+            try:
+                start_time = datetime.fromisoformat(data["start_time"])
+                end_time = datetime.fromisoformat(data["end_time"])
+            except:
+                return self.json({"error": "Укажите корректные даты начала и окончания"}, HTTPStatus.BAD_REQUEST)
 
             with db_connect() as connection:
+                operation = connection.execute(
+                    "SELECT duration_minutes FROM operations WHERE id = ? AND workshop_id = ?",
+                    (operation_id, workshop_id),).fetchone()
+                if end_time <= start_time:
+                    return self.json({"error": "Время окончания должно быть позже времени начала"}, HTTPStatus.BAD_REQUEST)
+                interval_minutes = (end_time - start_time).total_seconds() / 60
+                if interval_minutes < operation["duration_minutes"]:
+                    return self.json({"error": (f"Временной интервал должен быть не меньше длительности операции ({operation['duration_minutes']} мин.)")}, HTTPStatus.BAD_REQUEST)
                 cursor = connection.execute(
                     "INSERT INTO work_orders(workshop_id, operation_id, quantity, start_time, end_time, notes) VALUES (?, ?, ?, ?, ?, ?)",
                     (workshop_id, operation_id, data.get("quantity"), data.get("start_time"), data.get("end_time"), data.get("notes", "")),)
