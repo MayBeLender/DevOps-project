@@ -44,6 +44,8 @@ class BareSiteHandler(BaseHTTPRequestHandler):
         try:
             if self.path in {"/", "/login"} and method == "GET":
                 return self.file("html/login.html")
+            if self.path == "/health" and method == "GET":
+                return self.file("html/health.html")
             if self.path == "/dashboard" and method == "GET":
                 return self.file("html/dashboard.html")
             if self.path == "/styles.css" and method == "GET":
