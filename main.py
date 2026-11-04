@@ -2,29 +2,43 @@ import os
 import json
 import logging
 import secrets
-import sqlite3
+from pathlib import Path
+import psycopg
+from psycopg.rows import dict_row
 from datetime import datetime
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
 
-load_dotenv() 
+load_dotenv(Path(__file__).resolve().with_name(".env"), override=True)
 logger = logging.getLogger(__name__)
 
 HOST = os.getenv("HOST")
 PORT = int(os.getenv("PORT"))
-DB_PATH = os.getenv("DB_PATH")
 SESSIONS = {}
 
 def db_connect():
+    required = ("DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD")
+    missing = [name for name in required if not os.getenv(name)]
+    if missing:
+        raise RuntimeError(f"Missing database environment variables: {', '.join(missing)}")
+
     try:
-        connection = sqlite3.connect(DB_PATH)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
+        connection = psycopg.connect(
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT", "5432"),
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            connect_timeout=3,
+            row_factory=dict_row,
+        )
         logger.info("Connected to database")
-    except Exception as e: logger.exception(f"Database connection error: {e}")
-    return connection
+        return connection
+    except Exception as e:
+        logger.exception(f"Database connection error: {e}")
+        raise
 
 class BareSiteHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -114,7 +128,7 @@ class BareSiteHandler(BaseHTTPRequestHandler):
         password = data.get("password")
         
         with db_connect() as connection:
-            workshop = connection.execute("SELECT id FROM workshops WHERE code = ? AND password = ?",
+            workshop = connection.execute("SELECT id FROM workshops WHERE code = %s AND password = %s",
                 (code, password),).fetchone()
         
         if workshop is None: return
@@ -157,14 +171,14 @@ class BareSiteHandler(BaseHTTPRequestHandler):
     def workshops(self, method, workshop_id, item_id):
         if method == "GET":
             with db_connect() as connection:
-                row = connection.execute("SELECT name FROM workshops WHERE id = ?",
+                row = connection.execute("SELECT name FROM workshops WHERE id = %s",
                     (workshop_id,)).fetchone()
             self.json({"data": dict(row)})
 
     def operations(self, method, workshop_id, item_id):
         if method == "GET":
             with db_connect() as connection:
-                rows = connection.execute("SELECT id, name, description, duration_minutes, workers_required FROM operations WHERE workshop_id = ? ORDER BY id DESC",
+                rows = connection.execute("SELECT id, name, description, duration_minutes, workers_required FROM operations WHERE workshop_id = %s ORDER BY id DESC",
                     (workshop_id,)).fetchall()
             self.json({"data": [dict(row) for row in rows]})
         
@@ -172,23 +186,23 @@ class BareSiteHandler(BaseHTTPRequestHandler):
             data = self.body()
 
             with db_connect() as connection:
-                cursor = connection.execute("INSERT INTO operations(workshop_id, name, description, duration_minutes, workers_required) VALUES (?, ?, ?, ?, ?)",
+                cursor = connection.execute("INSERT INTO operations(workshop_id, name, description, duration_minutes, workers_required) VALUES (%s, %s, %s, %s, %s) RETURNING id",
                     (workshop_id, data.get("name"), data.get("description", ""), data.get("duration_minutes"), data.get("workers_required")),)
                 logger.info(f"Added operation: {data.get("name")}")
-                row = connection.execute("SELECT id, name, description, duration_minutes, workers_required FROM operations WHERE id = ?",
-                    (cursor.lastrowid,),).fetchone()
+                row = connection.execute("SELECT id, name, description, duration_minutes, workers_required FROM operations WHERE id = %s",
+                    (cursor.fetchone()["id"],),).fetchone()
             self.json({"data": dict(row)}, HTTPStatus.CREATED)
         
         if method == "DELETE":
             with db_connect() as connection:
-                cursor = connection.execute("DELETE FROM operations WHERE id = ? AND workshop_id = ?", (item_id, workshop_id))
+                cursor = connection.execute("DELETE FROM operations WHERE id = %s AND workshop_id = %s", (item_id, workshop_id))
                 logger.info(f"Deleted operation with id: {item_id}")
             self.json({"deleted": item_id})
 
     def materials(self, method, workshop_id, item_id):
         if method == "GET":
             with db_connect() as connection:
-                rows = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE workshop_id = ? ORDER BY quantity DESC",
+                rows = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE workshop_id = %s ORDER BY quantity DESC",
                     (workshop_id,)).fetchall()
             self.json({"data": [dict(row) for row in rows]})
 
@@ -196,27 +210,27 @@ class BareSiteHandler(BaseHTTPRequestHandler):
             data = self.body()
 
             with db_connect() as connection:
-                cursor = connection.execute("INSERT INTO materials(workshop_id, name, unit, quantity) VALUES (?, ?, ?, ?)",
+                cursor = connection.execute("INSERT INTO materials(workshop_id, name, unit, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
                     (workshop_id, data.get("name"), data.get("unit", "шт."), data.get("quantity", 0)),)
                 logger.info(f"Added material: {data.get("name")} with quantity of: {data.get("quantity", 0)}")
-                row = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE id = ?",
-                    (cursor.lastrowid,)).fetchone()
+                row = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE id = %s",
+                    (cursor.fetchone()["id"],)).fetchone()
             self.json({"data": dict(row)}, HTTPStatus.CREATED)
 
         if method == "PATCH":
             data = self.body()
 
             with db_connect() as connection:
-                connection.execute(f"UPDATE materials SET quantity = ? WHERE id = ? AND workshop_id = ?",
+                connection.execute(f"UPDATE materials SET quantity = %s WHERE id = %s AND workshop_id = %s",
                     (data["quantity"], item_id, workshop_id,))
                 logger.info(f"Changed {data.get("name")}`s quantity to: {data["quantity"]}")
-                row = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE id = ?",
+                row = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE id = %s",
                     (item_id,)).fetchone()
             self.json({"data": dict(row)})
 
         if method == "DELETE":
             with db_connect() as connection:
-                connection.execute("DELETE FROM materials WHERE id = ? AND workshop_id = ?", (item_id, workshop_id))
+                connection.execute("DELETE FROM materials WHERE id = %s AND workshop_id = %s", (item_id, workshop_id))
                 logger.info(f"Deleted material with id: {item_id}")
             self.json({"deleted": item_id})
 
@@ -225,7 +239,7 @@ class BareSiteHandler(BaseHTTPRequestHandler):
             query = """
                 SELECT work_orders.id, work_orders.operation_id, operations.name AS operation_name, work_orders.quantity, work_orders.start_time,
                 work_orders.end_time, work_orders.notes FROM work_orders INNER JOIN operations ON operations.id = work_orders.operation_id
-                WHERE work_orders.workshop_id = ? ORDER BY work_orders.id
+                WHERE work_orders.workshop_id = %s ORDER BY work_orders.id
             """
 
             with db_connect() as connection:
@@ -243,7 +257,7 @@ class BareSiteHandler(BaseHTTPRequestHandler):
 
             with db_connect() as connection:
                 operation = connection.execute(
-                    "SELECT duration_minutes FROM operations WHERE id = ? AND workshop_id = ?",
+                    "SELECT duration_minutes FROM operations WHERE id = %s AND workshop_id = %s",
                     (operation_id, workshop_id),).fetchone()
                 if end_time <= start_time:
                     return self.json({"error": "Время окончания должно быть позже времени начала"}, HTTPStatus.BAD_REQUEST)
@@ -251,16 +265,16 @@ class BareSiteHandler(BaseHTTPRequestHandler):
                 if interval_minutes < operation["duration_minutes"]:
                     return self.json({"error": (f"Временной интервал должен быть не меньше длительности операции ({operation['duration_minutes']} мин.)")}, HTTPStatus.BAD_REQUEST)
                 cursor = connection.execute(
-                    "INSERT INTO work_orders(workshop_id, operation_id, quantity, start_time, end_time, notes) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO work_orders(workshop_id, operation_id, quantity, start_time, end_time, notes) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
                     (workshop_id, operation_id, data.get("quantity"), data.get("start_time"), data.get("end_time"), data.get("notes", "")),)
                 logger.info(f"Added order: {data.get("name")}")
-                row = connection.execute("SELECT id, operation_id, quantity, start_time, end_time, notes FROM work_orders WHERE id = ?",
-                    (cursor.lastrowid,),).fetchone()
+                row = connection.execute("SELECT id, operation_id, quantity, start_time, end_time, notes FROM work_orders WHERE id = %s",
+                    (cursor.fetchone()["id"],),).fetchone()
             self.json({"data": dict(row)}, HTTPStatus.CREATED)
 
         if method == "DELETE":
             with db_connect() as connection:
-                connection.execute("DELETE FROM work_orders WHERE id = ? AND workshop_id = ?", (item_id, workshop_id))
+                connection.execute("DELETE FROM work_orders WHERE id = %s AND workshop_id = %s", (item_id, workshop_id))
                 logger.info(f"Deleted order with id: {item_id}")
             self.json({"deleted": item_id}) 
 
