@@ -75,12 +75,17 @@ class BareSiteHandler(BaseHTTPRequestHandler):
                     return
                 return self.resource(method, workshop_id)
             return self.file("html/404.html")
+        except (ValueError, TypeError, KeyError, UnicodeDecodeError, psycopg.IntegrityError, psycopg.DataError):
+            return self.json({"error": "Invalid request data"}, HTTPStatus.BAD_REQUEST)
         except Exception as e:
             logger.exception(f"Exception in routing: {e}")
 
     def body(self):
         length = int(self.headers.get("Content-Length", "0"))
-        return json.loads(self.rfile.read(length).decode("utf-8"))
+        data = json.loads(self.rfile.read(length).decode("utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Request body must be a JSON object")
+        return data
 
     def json(self, value, status=HTTPStatus.OK, headers=None):
         data = json.dumps(value).encode("utf-8")
@@ -108,10 +113,11 @@ class BareSiteHandler(BaseHTTPRequestHandler):
 
     def token(self):
         cookie_header = self.headers.get("Cookie")
+        cookies = SimpleCookie()
         if cookie_header:
-            cookies = SimpleCookie()
             cookies.load(cookie_header)
-        return cookies.get("session_token").value
+        token = cookies.get("session_token")
+        return token.value if token is not None else None
 
     def auth(self):
         token = self.token()
@@ -131,7 +137,8 @@ class BareSiteHandler(BaseHTTPRequestHandler):
             workshop = connection.execute("SELECT id FROM workshops WHERE code = %s AND password = %s",
                 (code, password),).fetchone()
         
-        if workshop is None: return
+        if workshop is None:
+            return
 
         token = secrets.token_urlsafe(24)
         SESSIONS[token] = workshop["id"]
@@ -195,7 +202,7 @@ class BareSiteHandler(BaseHTTPRequestHandler):
         
         if method == "DELETE":
             with db_connect() as connection:
-                cursor = connection.execute("DELETE FROM operations WHERE id = %s AND workshop_id = %s", (item_id, workshop_id))
+                connection.execute("DELETE FROM operations WHERE id = %s AND workshop_id = %s", (item_id, workshop_id))
                 logger.info(f"Deleted operation with id: {item_id}")
             self.json({"deleted": item_id})
 
@@ -221,11 +228,13 @@ class BareSiteHandler(BaseHTTPRequestHandler):
             data = self.body()
 
             with db_connect() as connection:
-                connection.execute(f"UPDATE materials SET quantity = %s WHERE id = %s AND workshop_id = %s",
+                connection.execute("UPDATE materials SET quantity = %s WHERE id = %s AND workshop_id = %s",
                     (data["quantity"], item_id, workshop_id,))
                 logger.info(f"Changed {data.get("name")}`s quantity to: {data["quantity"]}")
-                row = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE id = %s",
-                    (item_id,)).fetchone()
+                row = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE id = %s AND workshop_id = %s",
+                    (item_id, workshop_id)).fetchone()
+            if row is None:
+                return self.json({"error": "Material not found"}, HTTPStatus.NOT_FOUND)
             self.json({"data": dict(row)})
 
         if method == "DELETE":
@@ -252,13 +261,17 @@ class BareSiteHandler(BaseHTTPRequestHandler):
             try:
                 start_time = datetime.fromisoformat(data["start_time"])
                 end_time = datetime.fromisoformat(data["end_time"])
-            except:
+            except (KeyError, TypeError, ValueError):
                 return self.json({"error": "Укажите корректные даты начала и окончания"}, HTTPStatus.BAD_REQUEST)
 
             with db_connect() as connection:
                 operation = connection.execute(
                     "SELECT duration_minutes FROM operations WHERE id = %s AND workshop_id = %s",
                     (operation_id, workshop_id),).fetchone()
+                if operation is None:
+                    return self.json({"error": "Operation not found"}, HTTPStatus.NOT_FOUND)
+                if (start_time.tzinfo is None) != (end_time.tzinfo is None):
+                    return self.json({"error": "Inconsistent time zones"}, HTTPStatus.BAD_REQUEST)
                 if end_time <= start_time:
                     return self.json({"error": "Время окончания должно быть позже времени начала"}, HTTPStatus.BAD_REQUEST)
                 interval_minutes = (end_time - start_time).total_seconds() / 60

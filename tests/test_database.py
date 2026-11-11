@@ -22,7 +22,7 @@ class PostgreSQLTests(unittest.TestCase):
         test_fields = ("TEST_DB_NAME", "TEST_DB_USER", "TEST_DB_PASSWORD")
         if not any(settings.get(name) for name in test_fields):
             raise unittest.SkipTest("Skip")
-        required = ("DB_HOST", "DB_PORT", *test_fields)
+        required = ("TEST_DB_HOST", "TEST_DB_PORT", *test_fields)
         missing = [name for name in required if not settings.get(name)]
         if missing:
             raise RuntimeError("Missing test database settings: " + ", ".join(missing))
@@ -32,8 +32,8 @@ class PostgreSQLTests(unittest.TestCase):
         if database_name == settings.get("DB_NAME"):
             raise RuntimeError("TEST_DB_NAME must differ from the application DB_NAME")
         cls.database_settings = {
-            "host": settings["DB_HOST"],
-            "port": settings["DB_PORT"],
+            "host": settings["TEST_DB_HOST"],
+            "port": settings["TEST_DB_PORT"],
             "dbname": database_name,
             "user": settings["TEST_DB_USER"],
             "password": settings["TEST_DB_PASSWORD"],
@@ -52,7 +52,6 @@ class PostgreSQLTests(unittest.TestCase):
                 except psycopg.errors.DuplicateSchema:
                     continue
                 except psycopg.errors.UniqueViolation as error:
-                    # Concurrent CREATE SCHEMA may report the catalog's unique constraint.
                     if error.diag.constraint_name != "pg_namespace_nspname_index":
                         raise
         self.addCleanup(self.drop_schema)
@@ -186,6 +185,89 @@ class PostgreSQLTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertTrue(result["error"])
         self.assertEqual(self.rows("SELECT id FROM work_orders"), [])
+
+    def test_operation_accepts_minimum_duration_and_workers(self):
+        result, status = self.call("operations", "POST", {
+            "name": "Minimum", "duration_minutes": 1, "workers_required": 1,
+        })
+        self.assertEqual(status, 201)
+        self.assertEqual(result["data"]["duration_minutes"], 1)
+        self.assertEqual(result["data"]["workers_required"], 1)
+        self.assertEqual(self.rows("SELECT duration_minutes, workers_required FROM operations"), [
+            {"duration_minutes": 1, "workers_required": 1},
+        ])
+
+    def test_missing_required_operation_fields_do_not_create_records(self):
+        for field in ("name", "duration_minutes", "workers_required"):
+            with self.subTest(field=field):
+                payload = {"name": "Incomplete", "duration_minutes": 30, "workers_required": 1}
+                del payload[field]
+                with self.assertRaises(psycopg.errors.NotNullViolation):
+                    self.call("operations", "POST", payload)
+                self.assertEqual(self.rows("SELECT id FROM operations"), [])
+
+    def test_duplicate_operation_name_does_not_change_existing_data(self):
+        original = self.operation("Unique operation")
+        with self.assertRaises(psycopg.errors.UniqueViolation):
+            self.operation("Unique operation")
+        self.assertEqual(self.rows("SELECT * FROM operations"), [{"workshop_id": 1, **original}])
+
+    def test_material_list_filters_workshop_and_sorts_by_quantity(self):
+        low = self.material("Low", quantity=0)
+        high = self.material("High", quantity=2.5)
+        self.material("Other workshop", quantity=100, workshop_id=2)
+        result, = self.call("materials", "GET")
+        self.assertEqual(result["data"], [high, low])
+
+    def test_material_patch_cannot_read_or_change_another_workshop(self):
+        material = self.material("Other workshop", workshop_id=2)
+        result, status = self.call("materials", "PATCH", {"quantity": 0}, item_id=material["id"])
+        self.assertEqual(status, 404)
+        self.assertEqual(result, {"error": "Material not found"})
+        self.assertEqual(self.rows("SELECT * FROM materials"), [{"workshop_id": 2, **material}])
+
+    def test_deletes_cannot_remove_another_workshops_records(self):
+        operation = self.operation("Other operation", workshop_id=2)
+        material = self.material("Other material", workshop_id=2)
+        payload = {
+            "operation_id": operation["id"], "quantity": 1,
+            "start_time": "2026-11-11T10:00:00", "end_time": "2026-11-11T10:30:00",
+        }
+        order, status = self.call("orders", "POST", payload, workshop_id=2)
+        self.assertEqual(status, 201)
+        for resource, table, item in (
+            ("operations", "operations", operation),
+            ("materials", "materials", material),
+            ("orders", "work_orders", order["data"]),
+        ):
+            with self.subTest(resource=resource):
+                self.call(resource, "DELETE", item_id=item["id"])
+                rows = self.rows(sql.SQL("SELECT * FROM {}").format(sql.Identifier(table)))
+                self.assertEqual(rows, [{"workshop_id": 2, **item}])
+
+    def test_order_rejects_missing_or_foreign_operation(self):
+        foreign_operation = self.operation("Foreign operation", workshop_id=2)
+        for operation_id in (None, foreign_operation["id"], foreign_operation["id"] + 1):
+            with self.subTest(operation_id=operation_id):
+                result, status = self.call("orders", "POST", {
+                    "operation_id": operation_id, "quantity": 1,
+                    "start_time": "2026-11-11T10:00:00", "end_time": "2026-11-11T10:30:00",
+                })
+                self.assertEqual(status, 404)
+                self.assertEqual(result, {"error": "Operation not found"})
+                self.assertEqual(self.rows("SELECT id FROM work_orders"), [])
+
+    def test_deleting_operation_cascades_to_its_orders_only(self):
+        payload = self.order_payload()
+        self.call("orders", "POST", payload)
+        other = self.operation("Remaining operation")
+        remaining, status = self.call("orders", "POST", {**payload, "operation_id": other["id"]})
+        self.assertEqual(status, 201)
+        self.call("operations", "DELETE", item_id=payload["operation_id"])
+        self.assertEqual(self.rows("SELECT * FROM work_orders"), [
+            {"workshop_id": 1, **remaining["data"]},
+        ])
+        self.assertEqual(self.rows("SELECT * FROM operations"), [{"workshop_id": 1, **other}])
 
 
 if __name__ == "__main__":

@@ -83,6 +83,22 @@ class WorkOrderTimeTests(unittest.TestCase):
                 self.assert_rejected(handler)
                 self.connect.assert_not_called()
 
+    def test_mixed_naive_and_aware_dates_are_rejected(self):
+        for field in ("start_time", "end_time"):
+            with self.subTest(field=field):
+                self.connection.execute.reset_mock()
+                self.connection.execute.return_value.fetchone.side_effect = [{"duration_minutes": 30}]
+                handler = self.create_order(**{field: self.payload[field] + "+00:00"})
+                self.assert_rejected(handler)
+
+    def test_equal_interval_with_different_utc_offsets_is_accepted(self):
+        handler = self.create_order(
+            start_time="2026-11-11T13:00:00+03:00",
+            end_time="2026-11-11T10:30:00+00:00",
+        )
+        self.assertEqual(handler.json.call_args.args[1], HTTPStatus.CREATED)
+        self.assertEqual(self.connection.execute.call_count, 3)
+
 
 if __name__ == "__main__":
     unittest.main()
