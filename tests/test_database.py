@@ -9,7 +9,7 @@ from dotenv import dotenv_values
 from psycopg import sql
 from psycopg.rows import dict_row
 
-from tests.support import main, make_handler
+from tests.support import main, make_handler, migrate_schema
 
 
 class PostgreSQLTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class PostgreSQLTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        env_file = Path(__file__).resolve().parents[1] / ".env"
+        env_file = Path(__file__).resolve().parent / ".env.test"
         settings = {**dotenv_values(env_file), **os.environ}
         test_fields = ("TEST_DB_NAME", "TEST_DB_USER", "TEST_DB_PASSWORD")
         if not any(settings.get(name) for name in test_fields):
@@ -56,8 +56,8 @@ class PostgreSQLTests(unittest.TestCase):
                     if error.diag.constraint_name != "pg_namespace_nspname_index":
                         raise
         self.addCleanup(self.drop_schema)
+        migrate_schema(self.database_settings, self.schema)
         with self.connect() as connection:
-            connection.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
             for code in ("A", "B"):
                 connection.execute(
                     "INSERT INTO workshops (code, name, password) VALUES (%s, %s, %s)",
