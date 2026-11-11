@@ -2,6 +2,14 @@
 
 Веб-приложение для производственного учёта материалов, нарядов и процессов.
 
+## Eдиный сценарий первоначальной настройки
+
+~~~powershell/cmd
+sudo apt update && sudo apt install -y make python3 python3-venv python3-pip postgresql-client
+
+python -m pip install -r requirements.txt
+~~~
+
 ## Запуск
 
 ~~~powershell/cmd
