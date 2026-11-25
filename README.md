@@ -2,10 +2,25 @@
 
 Веб-приложение для производственного учёта материалов, нарядов и процессов.
 
+## Eдиный сценарий первоначальной настройки
+
+~~~powershell/cmd
+sudo apt update && sudo apt install -y make python3 python3-venv python3-pip postgresql-client
+
+python -m pip install -r requirements.txt
+~~~
+
 ## Запуск
 
 ~~~powershell/cmd
-python main.py
+make migrate
+make run
+~~~
+
+### Полная проверка
+
+~~~powershell/cmd
+make verify
 ~~~
 
 ## Правила внесения изменений
@@ -21,8 +36,7 @@ python main.py
 Из корня репозитория перед передачей изменения:
 
 ~~~powershell/cmd
-python -m py_compile main.py
-git diff --check
+make verify
 ~~~
 
 ## Запрещённые действия

@@ -52,6 +52,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let operations = [], materials = [];
+const orderStatuses = {planned: 'Запланирован', in_progress: 'В работе', completed: 'Завершён'};
 async function api(url, options = {}) {
     const response = await fetch(url, {headers: {'Content-Type': 'application/json'}, ...options});
     const payload = await response.json().catch(() => ({}));
@@ -70,12 +71,19 @@ async function load() {
         $('workshop-label').textContent = `${workshop.name}`;
         $('operations-list').innerHTML = table(['Название', 'Длительность', 'Работников', ''], operations.map(x => `<tr><td><strong>${x.name}</strong><small>${x.description || ''}</small></td><td>${x.duration_minutes} мин.</td><td>${x.workers_required}</td><td><button class="link danger" onclick="removeItem('/api/operations/${x.id}')">Удалить</button></td></tr>`));
         $('materials-list').innerHTML = table(['Название', 'Количество', ''], materials.map(x => `<tr><td><strong>${x.name}</strong><small>${x.unit}</small></td><td><input class="quantity-input" id="material-${x.id}" type="number" min="0" step="0.01" value="${x.quantity}"></td><td><button class="link" onclick="updateMaterial(${x.id})">Сохранить</button><button class="link danger" onclick="removeItem('/api/materials/${x.id}')">Удалить</button></td></tr>`));
-        $('orders-list').innerHTML = table(['№', 'Операция', 'Изделий', 'Начало', 'Конец', 'Примечание', ''], orderData.map(x => `<tr><td>#${x.id}</td><td>${x.operation_name}</td><td>${x.quantity}</td><td>${dateLabel(x.start_time)}</td><td>${dateLabel(x.end_time)}</td><td>${x.notes || '—'}</td><td><button class="link danger" onclick="removeItem('/api/work-orders/${x.id}')">Удалить</button></td></tr>`));
+        $('orders-list').innerHTML = table(['№', 'Операция', 'Изделий', 'Начало', 'Конец', 'Примечание', 'Статус', ''], orderData.map(x => `<tr><td>#${x.id}</td><td>${x.operation_name}</td><td>${x.quantity}</td><td>${dateLabel(x.start_time)}</td><td>${dateLabel(x.end_time)}</td><td>${x.notes || '—'}</td><td><select id="order-status-${x.id}" aria-label="Статус наряда ${x.id}">${Object.entries(orderStatuses).map(([value, label]) => `<option value="${value}"${x.status === value ? ' selected' : ''}>${label}</option>`).join('')}</select></td><td><button class="link" onclick="updateOrderStatus(${x.id})">Сохранить статус</button><button class="link danger" onclick="removeItem('/api/work-orders/${x.id}')">Удалить</button></td></tr>`));
         $('order-operation').innerHTML = '<option value="">Операция</option>' + operations.map(x => `<option value="${x.id}">${x.name}</option>`).join('');
     } catch (error) { showError(error); }
 }
 async function removeItem(url) { if (!confirm('Удалить запись?')) return; try { await api(url, {method: 'DELETE'}); await load(); showOk('Запись удалена'); } catch (error) { showError(error); } }
 async function updateMaterial(id) { const input = $(`material-${id}`); try { await api(`/api/materials/${id}`, {method: 'PATCH', body: JSON.stringify({quantity: Number(input.value)})}); await load(); showOk('Количество материала обновлено'); } catch (error) { showError(error); } }
+async function updateOrderStatus(id) {
+    try {
+        await api(`/api/work-orders/${id}`, {method: 'PATCH', body: JSON.stringify({status: $(`order-status-${id}`).value})});
+        await load();
+        showOk('Статус наряда обновлён');
+    } catch (error) { showError(error); }
+}
 for (const button of document.querySelectorAll('[data-toggle]')) button.addEventListener('click', () => $(button.dataset.toggle).classList.toggle('hidden'));
 $('operation-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/operations', {method:'POST', body: JSON.stringify({name:$('operation-name').value, duration_minutes:Number($('operation-duration').value), workers_required:Number($('operation-workers').value), description:$('operation-description').value})}); event.target.reset(); await load(); showOk('Операция добавлена'); } catch (error) { showError(error); } });
 $('material-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/materials', {method:'POST', body: JSON.stringify({name:$('material-name').value, unit:$('material-unit').value, quantity:Number($('material-quantity').value)})}); event.target.reset(); $('material-unit').value='шт.'; await load(); showOk('Материал добавлен'); } catch (error) { showError(error); } });

@@ -1,15 +1,16 @@
-import os
 import json
 import logging
+import os
 import secrets
-from pathlib import Path
-import psycopg
-from psycopg.rows import dict_row
 from datetime import datetime
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+import psycopg
 from dotenv import load_dotenv
+from psycopg.rows import dict_row
 
 load_dotenv(Path(__file__).resolve().with_name(".env"), override=True)
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 HOST = os.getenv("HOST")
 PORT = int(os.getenv("PORT"))
 SESSIONS = {}
+
 
 def db_connect():
     required = ("DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD")
@@ -36,9 +38,10 @@ def db_connect():
         )
         logger.info("Connected to database")
         return connection
-    except Exception as e:
-        logger.exception(f"Database connection error: {e}")
+    except Exception:
+        logger.exception("Database connection error")
         raise
+
 
 class BareSiteHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -75,12 +78,24 @@ class BareSiteHandler(BaseHTTPRequestHandler):
                     return
                 return self.resource(method, workshop_id)
             return self.file("html/404.html")
-        except Exception as e:
-            logger.exception(f"Exception in routing: {e}")
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            UnicodeDecodeError,
+            psycopg.IntegrityError,
+            psycopg.DataError,
+        ):
+            return self.json({"error": "Invalid request data"}, HTTPStatus.BAD_REQUEST)
+        except Exception:
+            logger.exception("Exception in routing")
 
     def body(self):
         length = int(self.headers.get("Content-Length", "0"))
-        return json.loads(self.rfile.read(length).decode("utf-8"))
+        data = json.loads(self.rfile.read(length).decode("utf-8"))
+        if not isinstance(data, dict):
+            raise TypeError("Request body must be a JSON object")
+        return data
 
     def json(self, value, status=HTTPStatus.OK, headers=None):
         data = json.dumps(value).encode("utf-8")
@@ -98,8 +113,8 @@ class BareSiteHandler(BaseHTTPRequestHandler):
         try:
             with open(filename, "rb") as file:
                 data = file.read()
-        except Exception as e:
-            logger.exception(f"Exception while loading file: {e}")
+        except Exception:
+            logger.exception("Exception while loading file")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
@@ -108,10 +123,11 @@ class BareSiteHandler(BaseHTTPRequestHandler):
 
     def token(self):
         cookie_header = self.headers.get("Cookie")
+        cookies = SimpleCookie()
         if cookie_header:
-            cookies = SimpleCookie()
             cookies.load(cookie_header)
-        return cookies.get("session_token").value
+        token = cookies.get("session_token")
+        return token.value if token is not None else None
 
     def auth(self):
         token = self.token()
@@ -126,12 +142,15 @@ class BareSiteHandler(BaseHTTPRequestHandler):
         data = self.body()
         code = data.get("workshop_code")
         password = data.get("password")
-        
+
         with db_connect() as connection:
-            workshop = connection.execute("SELECT id FROM workshops WHERE code = %s AND password = %s",
-                (code, password),).fetchone()
-        
-        if workshop is None: return
+            workshop = connection.execute(
+                "SELECT id FROM workshops WHERE code = %s AND password = %s",
+                (code, password),
+            ).fetchone()
+
+        if workshop is None:
+            return
 
         token = secrets.token_urlsafe(24)
         SESSIONS[token] = workshop["id"]
@@ -171,66 +190,108 @@ class BareSiteHandler(BaseHTTPRequestHandler):
     def workshops(self, method, workshop_id, item_id):
         if method == "GET":
             with db_connect() as connection:
-                row = connection.execute("SELECT name FROM workshops WHERE id = %s",
-                    (workshop_id,)).fetchone()
+                row = connection.execute(
+                    "SELECT name FROM workshops WHERE id = %s", (workshop_id,)
+                ).fetchone()
             self.json({"data": dict(row)})
 
     def operations(self, method, workshop_id, item_id):
         if method == "GET":
             with db_connect() as connection:
-                rows = connection.execute("SELECT id, name, description, duration_minutes, workers_required FROM operations WHERE workshop_id = %s ORDER BY id DESC",
-                    (workshop_id,)).fetchall()
+                rows = connection.execute(
+                    "SELECT id, name, description, duration_minutes, workers_required FROM operations WHERE workshop_id = %s ORDER BY id DESC",
+                    (workshop_id,),
+                ).fetchall()
             self.json({"data": [dict(row) for row in rows]})
-        
+
         if method == "POST":
             data = self.body()
 
             with db_connect() as connection:
-                cursor = connection.execute("INSERT INTO operations(workshop_id, name, description, duration_minutes, workers_required) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                    (workshop_id, data.get("name"), data.get("description", ""), data.get("duration_minutes"), data.get("workers_required")),)
-                logger.info(f"Added operation: {data.get("name")}")
-                row = connection.execute("SELECT id, name, description, duration_minutes, workers_required FROM operations WHERE id = %s",
-                    (cursor.fetchone()["id"],),).fetchone()
+                cursor = connection.execute(
+                    "INSERT INTO operations(workshop_id, name, description, duration_minutes, workers_required) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                    (
+                        workshop_id,
+                        data.get("name"),
+                        data.get("description", ""),
+                        data.get("duration_minutes"),
+                        data.get("workers_required"),
+                    ),
+                )
+                logger.info(f"Added operation: {data.get('name')}")
+                row = connection.execute(
+                    "SELECT id, name, description, duration_minutes, workers_required FROM operations WHERE id = %s",
+                    (cursor.fetchone()["id"],),
+                ).fetchone()
             self.json({"data": dict(row)}, HTTPStatus.CREATED)
-        
+
         if method == "DELETE":
             with db_connect() as connection:
-                cursor = connection.execute("DELETE FROM operations WHERE id = %s AND workshop_id = %s", (item_id, workshop_id))
+                connection.execute(
+                    "DELETE FROM operations WHERE id = %s AND workshop_id = %s",
+                    (item_id, workshop_id),
+                )
                 logger.info(f"Deleted operation with id: {item_id}")
             self.json({"deleted": item_id})
 
     def materials(self, method, workshop_id, item_id):
         if method == "GET":
             with db_connect() as connection:
-                rows = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE workshop_id = %s ORDER BY quantity DESC",
-                    (workshop_id,)).fetchall()
+                rows = connection.execute(
+                    "SELECT id, name, unit, quantity FROM materials WHERE workshop_id = %s ORDER BY quantity DESC",
+                    (workshop_id,),
+                ).fetchall()
             self.json({"data": [dict(row) for row in rows]})
 
         if method == "POST":
             data = self.body()
 
             with db_connect() as connection:
-                cursor = connection.execute("INSERT INTO materials(workshop_id, name, unit, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-                    (workshop_id, data.get("name"), data.get("unit", "шт."), data.get("quantity", 0)),)
-                logger.info(f"Added material: {data.get("name")} with quantity of: {data.get("quantity", 0)}")
-                row = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE id = %s",
-                    (cursor.fetchone()["id"],)).fetchone()
+                cursor = connection.execute(
+                    "INSERT INTO materials(workshop_id, name, unit, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
+                    (
+                        workshop_id,
+                        data.get("name"),
+                        data.get("unit", "шт."),
+                        data.get("quantity", 0),
+                    ),
+                )
+                logger.info(
+                    f"Added material: {data.get('name')} with quantity of: {data.get('quantity', 0)}"
+                )
+                row = connection.execute(
+                    "SELECT id, name, unit, quantity FROM materials WHERE id = %s",
+                    (cursor.fetchone()["id"],),
+                ).fetchone()
             self.json({"data": dict(row)}, HTTPStatus.CREATED)
 
         if method == "PATCH":
             data = self.body()
 
             with db_connect() as connection:
-                connection.execute(f"UPDATE materials SET quantity = %s WHERE id = %s AND workshop_id = %s",
-                    (data["quantity"], item_id, workshop_id,))
-                logger.info(f"Changed {data.get("name")}`s quantity to: {data["quantity"]}")
-                row = connection.execute("SELECT id, name, unit, quantity FROM materials WHERE id = %s",
-                    (item_id,)).fetchone()
+                connection.execute(
+                    "UPDATE materials SET quantity = %s WHERE id = %s AND workshop_id = %s",
+                    (
+                        data["quantity"],
+                        item_id,
+                        workshop_id,
+                    ),
+                )
+                logger.info(f"Changed {data.get('name')}`s quantity to: {data['quantity']}")
+                row = connection.execute(
+                    "SELECT id, name, unit, quantity FROM materials WHERE id = %s AND workshop_id = %s",
+                    (item_id, workshop_id),
+                ).fetchone()
+            if row is None:
+                return self.json({"error": "Material not found"}, HTTPStatus.NOT_FOUND)
             self.json({"data": dict(row)})
 
         if method == "DELETE":
             with db_connect() as connection:
-                connection.execute("DELETE FROM materials WHERE id = %s AND workshop_id = %s", (item_id, workshop_id))
+                connection.execute(
+                    "DELETE FROM materials WHERE id = %s AND workshop_id = %s",
+                    (item_id, workshop_id),
+                )
                 logger.info(f"Deleted material with id: {item_id}")
             self.json({"deleted": item_id})
 
@@ -238,7 +299,7 @@ class BareSiteHandler(BaseHTTPRequestHandler):
         if method == "GET":
             query = """
                 SELECT work_orders.id, work_orders.operation_id, operations.name AS operation_name, work_orders.quantity, work_orders.start_time,
-                work_orders.end_time, work_orders.notes FROM work_orders INNER JOIN operations ON operations.id = work_orders.operation_id
+                work_orders.end_time, work_orders.notes, work_orders.status FROM work_orders INNER JOIN operations ON operations.id = work_orders.operation_id
                 WHERE work_orders.workshop_id = %s ORDER BY work_orders.id
             """
 
@@ -252,36 +313,87 @@ class BareSiteHandler(BaseHTTPRequestHandler):
             try:
                 start_time = datetime.fromisoformat(data["start_time"])
                 end_time = datetime.fromisoformat(data["end_time"])
-            except:
-                return self.json({"error": "Укажите корректные даты начала и окончания"}, HTTPStatus.BAD_REQUEST)
+            except (KeyError, TypeError, ValueError):
+                return self.json(
+                    {"error": "Укажите корректные даты начала и окончания"}, HTTPStatus.BAD_REQUEST
+                )
 
             with db_connect() as connection:
                 operation = connection.execute(
                     "SELECT duration_minutes FROM operations WHERE id = %s AND workshop_id = %s",
-                    (operation_id, workshop_id),).fetchone()
+                    (operation_id, workshop_id),
+                ).fetchone()
+                if operation is None:
+                    return self.json({"error": "Operation not found"}, HTTPStatus.NOT_FOUND)
+                if (start_time.tzinfo is None) != (end_time.tzinfo is None):
+                    return self.json({"error": "Inconsistent time zones"}, HTTPStatus.BAD_REQUEST)
                 if end_time <= start_time:
-                    return self.json({"error": "Время окончания должно быть позже времени начала"}, HTTPStatus.BAD_REQUEST)
+                    return self.json(
+                        {"error": "Время окончания должно быть позже времени начала"},
+                        HTTPStatus.BAD_REQUEST,
+                    )
                 interval_minutes = (end_time - start_time).total_seconds() / 60
                 if interval_minutes < operation["duration_minutes"]:
-                    return self.json({"error": (f"Временной интервал должен быть не меньше длительности операции ({operation['duration_minutes']} мин.)")}, HTTPStatus.BAD_REQUEST)
+                    return self.json(
+                        {
+                            "error": (
+                                f"Временной интервал должен быть не меньше длительности операции ({operation['duration_minutes']} мин.)"
+                            )
+                        },
+                        HTTPStatus.BAD_REQUEST,
+                    )
                 cursor = connection.execute(
                     "INSERT INTO work_orders(workshop_id, operation_id, quantity, start_time, end_time, notes) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                    (workshop_id, operation_id, data.get("quantity"), data.get("start_time"), data.get("end_time"), data.get("notes", "")),)
-                logger.info(f"Added order: {data.get("name")}")
-                row = connection.execute("SELECT id, operation_id, quantity, start_time, end_time, notes FROM work_orders WHERE id = %s",
-                    (cursor.fetchone()["id"],),).fetchone()
+                    (
+                        workshop_id,
+                        operation_id,
+                        data.get("quantity"),
+                        data.get("start_time"),
+                        data.get("end_time"),
+                        data.get("notes", ""),
+                    ),
+                )
+                logger.info(f"Added order: {data.get('name')}")
+                row = connection.execute(
+                    "SELECT id, operation_id, quantity, start_time, end_time, notes, status FROM work_orders WHERE id = %s",
+                    (cursor.fetchone()["id"],),
+                ).fetchone()
             self.json({"data": dict(row)}, HTTPStatus.CREATED)
+
+        if method == "PATCH":
+            if item_id is None:
+                return self.json({"error": "Укажите ID наряда"}, HTTPStatus.BAD_REQUEST)
+            data = self.body()
+            status = data.get("status")
+            if not isinstance(status, str) or status not in ("planned", "in_progress", "completed"):
+                return self.json({"error": "Недопустимый статус наряда"}, HTTPStatus.BAD_REQUEST)
+            with db_connect() as connection:
+                row = connection.execute(
+                    "UPDATE work_orders SET status = %s WHERE id = %s AND workshop_id = %s "
+                    "RETURNING id, operation_id, quantity, start_time, end_time, notes, status",
+                    (status, item_id, workshop_id),
+                ).fetchone()
+            if row is None:
+                return self.json({"error": "Наряд не найден"}, HTTPStatus.NOT_FOUND)
+            return self.json({"data": dict(row)})
 
         if method == "DELETE":
             with db_connect() as connection:
-                connection.execute("DELETE FROM work_orders WHERE id = %s AND workshop_id = %s", (item_id, workshop_id))
+                connection.execute(
+                    "DELETE FROM work_orders WHERE id = %s AND workshop_id = %s",
+                    (item_id, workshop_id),
+                )
                 logger.info(f"Deleted order with id: {item_id}")
-            self.json({"deleted": item_id}) 
+            self.json({"deleted": item_id})
+
 
 if __name__ == "__main__":
-    logging.basicConfig(filename='./logs/main.log', level=logging.INFO,
+    logging.basicConfig(
+        filename="./logs/main.log",
+        level=logging.INFO,
         format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
-        datefmt="%d/%b/%Y %H:%M:%S")
+        datefmt="%d/%b/%Y %H:%M:%S",
+    )
 
     server = HTTPServer((HOST, PORT), BareSiteHandler)
     print(f"Server started at http://{HOST}:{PORT}")
