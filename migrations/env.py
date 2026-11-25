@@ -11,6 +11,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+
 def database_url():
     # Match main.py: settings from the project's .env take precedence.
     load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
@@ -27,10 +28,12 @@ def database_url():
         password=os.environ["DB_PASSWORD"],
     )
 
+
 def run_migrations(connection):
     context.configure(connection=connection, target_metadata=None)
     with context.begin_transaction():
         context.run_migrations()
+
 
 if context.is_offline_mode():
     context.configure(
@@ -46,7 +49,8 @@ else:
         run_migrations(connection)
     else:
         engine = create_engine(
-            database_url(), poolclass=pool.NullPool,
+            database_url(),
+            poolclass=pool.NullPool,
             connect_args={"connect_timeout": 3},
         )
         try:

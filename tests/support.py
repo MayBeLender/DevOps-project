@@ -3,12 +3,11 @@ import os
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-
 with patch("dotenv.load_dotenv"), patch.dict(os.environ, {"HOST": "127.0.0.1", "PORT": "8000"}):
     main = importlib.import_module("main")
 
 
-def migrate_schema(database_settings, schema):
+def migrate_schema(database_settings, schema, revision="head", *, downgrade=False):
     import psycopg
     from alembic import command
     from alembic.config import Config
@@ -18,13 +17,15 @@ def migrate_schema(database_settings, schema):
     engine = create_engine(
         "postgresql+psycopg://",
         creator=lambda: psycopg.connect(
-            **database_settings, options=f"-c search_path={schema}",
+            **database_settings,
+            options=f"-c search_path={schema}",
         ),
     )
     try:
         with engine.begin() as connection:
             config.attributes["connection"] = connection
-            command.upgrade(config, "head")
+            migrate = command.downgrade if downgrade else command.upgrade
+            migrate(config, revision)
     finally:
         engine.dispose()
 

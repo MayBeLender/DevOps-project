@@ -2,7 +2,7 @@ PYTHON ?= python
 FILE ?= backup.dump
 
 .DEFAULT_GOAL := check
-.PHONY: install run check lint test sast migrate backup restore
+.PHONY: install run check verify lint test sast migrate backup restore
 
 install:
 	$(PYTHON) -m pip install -r requirements.txt
@@ -12,6 +12,11 @@ run:
 	$(PYTHON) main.py
 
 check: lint test sast
+
+verify: lint sast
+	$(PYTHON) -m pytest
+	$(PYTHON) -m compileall -q main.py db_backup.py migrations tests
+	git diff --check
 
 lint:
 	$(PYTHON) -m ruff check .

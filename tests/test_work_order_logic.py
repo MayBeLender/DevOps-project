@@ -15,7 +15,9 @@ class WorkOrderTimeTests(unittest.TestCase):
         }
         self.connection = MagicMock()
         self.connection.execute.return_value.fetchone.side_effect = [
-            {"duration_minutes": 30}, {"id": 42}, {"id": 42, **self.payload},
+            {"duration_minutes": 30},
+            {"id": 42},
+            {"id": 42, **self.payload, "status": "planned"},
         ]
         connect = patch.object(main, "db_connect")
         self.connect = connect.start()
@@ -34,37 +36,52 @@ class WorkOrderTimeTests(unittest.TestCase):
         self.assertTrue(value["error"])
         self.assertLessEqual(self.connection.execute.call_count, 1)
 
+    # Проверяет отказ, если окончание наряда раньше начала.
     def test_end_before_start_is_rejected(self):
         self.assert_rejected(self.create_order(end_time="2026-11-11T09:59:59"))
 
+    # Проверяет отказ при совпадении времени начала и окончания.
     def test_end_equal_to_start_is_rejected(self):
         self.assert_rejected(self.create_order(end_time=self.payload["start_time"]))
 
+    # Проверяет отказ, если наряд на секунду короче операции.
     def test_interval_one_second_shorter_than_operation_is_rejected(self):
         self.assert_rejected(self.create_order(end_time="2026-11-11T10:29:59"))
 
+    # Проверяет создание наряда с длительностью, равной длительности операции.
     def test_interval_equal_to_operation_is_accepted(self):
         handler = self.create_order()
         handler.json.assert_called_once_with(
-            {"data": {"id": 42, **self.payload}}, HTTPStatus.CREATED
+            {"data": {"id": 42, **self.payload, "status": "planned"}}, HTTPStatus.CREATED
         )
         self.assertEqual(self.connection.execute.call_count, 3)
         insert_parameters = self.connection.execute.call_args_list[1].args[1]
-        self.assertEqual(insert_parameters, (
-            1, 7, 1, self.payload["start_time"], self.payload["end_time"], "",
-        ))
+        self.assertEqual(
+            insert_parameters,
+            (
+                1,
+                7,
+                1,
+                self.payload["start_time"],
+                self.payload["end_time"],
+                "",
+            ),
+        )
 
+    # Проверяет создание наряда на секунду длиннее операции.
     def test_interval_one_second_longer_than_operation_is_accepted(self):
         handler = self.create_order(end_time="2026-11-11T10:30:01")
         self.assertEqual(handler.json.call_args.args[1], HTTPStatus.CREATED)
         self.assertEqual(self.connection.execute.call_count, 3)
 
+    # Проверяет создание наряда с переходом через полночь.
     def test_interval_across_midnight_is_accepted(self):
         handler = self.create_order(
             start_time="2026-11-11T23:45:00", end_time="2026-11-12T00:15:00"
         )
         self.assertEqual(handler.json.call_args.args[1], HTTPStatus.CREATED)
 
+    # Проверяет отказ при некорректных датах или их типах без обращения к БД.
     def test_invalid_dates_and_types_are_rejected_without_database_access(self):
         for field in ("start_time", "end_time"):
             for invalid in ("not-a-date", "2026-02-30T10:00:00", "", None, 123):
@@ -73,6 +90,7 @@ class WorkOrderTimeTests(unittest.TestCase):
                     self.assert_rejected(handler)
                     self.connect.assert_not_called()
 
+    # Проверяет отказ при отсутствии дат без обращения к БД.
     def test_missing_dates_are_rejected_without_database_access(self):
         for field in ("start_time", "end_time"):
             with self.subTest(field=field):
@@ -83,14 +101,18 @@ class WorkOrderTimeTests(unittest.TestCase):
                 self.assert_rejected(handler)
                 self.connect.assert_not_called()
 
+    # Проверяет отказ, если часовой пояс указан только у одной из дат.
     def test_mixed_naive_and_aware_dates_are_rejected(self):
         for field in ("start_time", "end_time"):
             with self.subTest(field=field):
                 self.connection.execute.reset_mock()
-                self.connection.execute.return_value.fetchone.side_effect = [{"duration_minutes": 30}]
+                self.connection.execute.return_value.fetchone.side_effect = [
+                    {"duration_minutes": 30}
+                ]
                 handler = self.create_order(**{field: self.payload[field] + "+00:00"})
                 self.assert_rejected(handler)
 
+    # Проверяет допустимую длительность наряда при разных часовых поясах дат.
     def test_equal_interval_with_different_utc_offsets_is_accepted(self):
         handler = self.create_order(
             start_time="2026-11-11T13:00:00+03:00",

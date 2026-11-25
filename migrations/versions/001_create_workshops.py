@@ -5,6 +5,7 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+
 def upgrade():
     op.execute("""
         CREATE TABLE workshops (
@@ -14,10 +15,11 @@ def upgrade():
             password TEXT NOT NULL
         )
     """)
-    op.execute('''
+    op.execute("""
         CREATE UNIQUE INDEX workshops_code_nocase_uq
             ON workshops ((lower(code COLLATE "C")))
-    ''')
+    """)
+
 
 def downgrade():
     op.drop_table("workshops")

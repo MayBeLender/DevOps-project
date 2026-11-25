@@ -13,7 +13,14 @@ python -m pip install -r requirements.txt
 ## Запуск
 
 ~~~powershell/cmd
-python main.py
+make migrate
+make run
+~~~
+
+### Полная проверка
+
+~~~powershell/cmd
+make verify
 ~~~
 
 ## Правила внесения изменений
@@ -29,8 +36,7 @@ python main.py
 Из корня репозитория перед передачей изменения:
 
 ~~~powershell/cmd
-python -m py_compile main.py
-git diff --check
+make verify
 ~~~
 
 ## Запрещённые действия

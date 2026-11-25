@@ -5,6 +5,7 @@ down_revision = "002"
 branch_labels = None
 depends_on = None
 
+
 def upgrade():
     op.execute("""
         CREATE TABLE work_orders (
@@ -17,6 +18,7 @@ def upgrade():
             notes TEXT NOT NULL DEFAULT ''
         )
     """)
+
 
 def downgrade():
     op.drop_table("work_orders")

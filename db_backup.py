@@ -1,7 +1,8 @@
 import argparse
 import os
-from pathlib import Path
+import shutil
 import subprocess
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -29,19 +30,40 @@ def main():
     }
     if args.command == "backup":
         command = [
-            "pg_dump", "--no-password", "--format=custom", "--no-owner", "--no-acl",
-            "--file", str(args.file),
+            "pg_dump",
+            "--no-password",
+            "--format=custom",
+            "--no-owner",
+            "--no-acl",
+            "--file",
+            str(args.file),
         ]
     else:
         command = [
-            "pg_restore", "--no-password", "--dbname", env["PGDATABASE"],
-            "--clean", "--if-exists", "--no-owner", "--no-acl",
-            "--single-transaction", "--exit-on-error", str(args.file),
+            "pg_restore",
+            "--no-password",
+            "--dbname",
+            env["PGDATABASE"],
+            "--clean",
+            "--if-exists",
+            "--no-owner",
+            "--no-acl",
+            "--single-transaction",
+            "--exit-on-error",
+            str(args.file),
         ]
+    executable = shutil.which(command[0])
+    if executable is None:
+        parser.error(
+            f"{command[0]} was not found. Install PostgreSQL client tools and add them to PATH."
+        )
+    command[0] = executable
     try:
         result = subprocess.run(command, env=env, check=False)
     except FileNotFoundError:
-        parser.error(f"{command[0]} was not found. Install PostgreSQL client tools and add them to PATH.")
+        parser.error(
+            f"{command[0]} was not found. Install PostgreSQL client tools and add them to PATH."
+        )
     if result.returncode == 0:
         print(f"{args.command.capitalize()} completed: {args.file}")
     return result.returncode

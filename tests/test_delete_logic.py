@@ -36,19 +36,23 @@ class DeleteTests(unittest.TestCase):
         self.assertIs(exit_args[0], RuntimeError)
         self.assertIs(exit_args[1], error)
 
+    # Проверяет удаление операции по ID и цеху с возвратом удалённого ID.
     def test_delete_operation_filters_id_and_workshop_and_returns_deleted_id(self):
         self.assert_delete_succeeds(
             "operations", "DELETE FROM operations WHERE id = %s AND workshop_id = %s"
         )
 
+    # Проверяет удаление материала по ID и цеху с возвратом удалённого ID.
     def test_delete_material_filters_id_and_workshop_and_returns_deleted_id(self):
         self.assert_delete_succeeds(
             "materials", "DELETE FROM materials WHERE id = %s AND workshop_id = %s"
         )
 
+    # Проверяет передачу ошибки БД при удалении операции без ответа об успехе.
     def test_delete_operation_does_not_report_success_on_database_error(self):
         self.assert_database_failure_is_propagated("operations")
 
+    # Проверяет передачу ошибки БД при удалении материала без ответа об успехе.
     def test_delete_material_does_not_report_success_on_database_error(self):
         self.assert_database_failure_is_propagated("materials")
 

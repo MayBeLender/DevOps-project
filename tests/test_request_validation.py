@@ -15,6 +15,7 @@ class RequestValidationTests(unittest.TestCase):
         handler.end_headers = Mock()
         return handler
 
+    # Проверяет отказ в доступе к API без действующей сессии.
     def test_missing_or_invalid_session_denies_api_access(self):
         with patch.dict(main.SESSIONS, {}, clear=True), patch.object(main, "db_connect") as connect:
             for headers in ({}, {"Cookie": "other=value"}, {"Cookie": "session_token=unknown"}):
@@ -27,6 +28,7 @@ class RequestValidationTests(unittest.TestCase):
                     handler.resource.assert_not_called()
             connect.assert_not_called()
 
+    # Проверяет, что запрос использует цех из действующей сессии.
     def test_valid_session_uses_its_workshop(self):
         with patch.dict(main.SESSIONS, {"valid-session": 7}, clear=True):
             handler = self.handler({"Cookie": "session_token=valid-session"})
@@ -35,20 +37,25 @@ class RequestValidationTests(unittest.TestCase):
             handler.resource.assert_called_once_with("GET", 7)
             handler.send_response.assert_not_called()
 
+    # Проверяет ответ 400 для некорректного JSON или тела, не являющегося объектом.
     def test_invalid_json_and_nonobject_bodies_return_bad_request(self):
-        with patch.dict(main.SESSIONS, {"valid-session": 7}, clear=True):
-            with patch.object(main, "db_connect") as connect:
-                for body in (b"{", b"\xff", b"[]", b"null", b'"text"', b"123"):
-                    with self.subTest(body=body):
-                        handler = self.handler({
+        with (
+            patch.dict(main.SESSIONS, {"valid-session": 7}, clear=True),
+            patch.object(main, "db_connect") as connect,
+        ):
+            for body in (b"{", b"\xff", b"[]", b"null", b'"text"', b"123"):
+                with self.subTest(body=body):
+                    handler = self.handler(
+                        {
                             "Cookie": "session_token=valid-session",
                             "Content-Length": str(len(body)),
-                        })
-                        handler.rfile = io.BytesIO(body)
-                        handler.body = main.BareSiteHandler.body.__get__(handler)
-                        handler.route("POST")
-                        handler.json.assert_called_once_with({"error": "Invalid request data"}, 400)
-                connect.assert_not_called()
+                        }
+                    )
+                    handler.rfile = io.BytesIO(body)
+                    handler.body = main.BareSiteHandler.body.__get__(handler)
+                    handler.route("POST")
+                    handler.json.assert_called_once_with({"error": "Invalid request data"}, 400)
+            connect.assert_not_called()
 
 
 if __name__ == "__main__":

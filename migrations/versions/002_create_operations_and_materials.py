@@ -5,6 +5,7 @@ down_revision = "001"
 branch_labels = None
 depends_on = None
 
+
 def upgrade():
     op.execute("""
         CREATE TABLE operations (
@@ -25,6 +26,7 @@ def upgrade():
             quantity DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (quantity >= 0)
         )
     """)
+
 
 def downgrade():
     op.drop_table("materials")
